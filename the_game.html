@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>World Generation Test</title>
+	<meta charset="UTF-8">
+	<link href="https://fonts.googleapis.com/css?family=Cutive+Mono" rel="stylesheet"> 
+	<style>
+		body {
+			font: 16px 'Cutive Mono', monospace;
+		}
+		
+		#game-panel {
+			width: 1300px;
+			margin: auto;
+			display: flex;
+		}
+		
+		#left-panel {
+			order: 0;
+			padding: 25px;
+		}
+		
+		#right-panel {
+			order: 1;
+			padding: 23px;
+		}
+		
+		#map-panel {
+			display: flex;
+			flex-direction: row;
+			border: 2px solid black;
+			height: 300px;
+			width: 600px;
+		}
+
+		#legend {
+			height: 100%;
+			display: flex;
+			flex-direction: row;
+			order: 0;
+			border-right: 1px solid black;
+		}
+
+		#legend-text {
+			height: 100%;
+			width: 59px;
+			display: flex;
+			flex-direction: column;
+			justify-content: space-between;
+			text-align: center;
+			color: white;
+			text-shadow: #000 0px 0px 10px,   #000 0px 0px 10px,   #000 0px 0px 10px;
+		}
+		
+		#canvas-panel {
+			width: 540px;
+			height: 100%;
+			order: 1;
+		}
+		
+		.button-panel {
+			width: 600px;
+			margin: auto;
+			display: flex;
+			flex-wrap: wrap;
+		}
+		
+		.button-panel button {
+			font: 14px 'Cutive Mono', monospace;
+			margin: 2px;
+			flex-basis: content;
+			flex-grow: 1;
+		}
+		
+		#species-stats-panel {
+			border: 2px solid black;
+			text-align: left;
+		}
+		
+		#debug {
+			position: fixed;
+			right: 0;
+			bottom: 0;
+			background-color: white;
+			border:1px solid black;
+		}
+		
+		#error {
+			position: fixed;
+			background-color:red;
+			font: 69px "Comic Sans MS", cursive, sans-serif;
+			border: 10px solid black;
+			margin:auto;
+		}
+		
+	</style>
+</head>
+<body>
+	<div id="debug">
+		<button type="button" onclick="toggleDebug()">Toggle Debug</button>
+		<table id="debugData"></table>
+	</div>
+	<div id="error">LOAD ERROR</div>
+	<div id="game-panel">
+		<div id="left-panel">
+			
+		</div>
+		<div id ="right-panel">
+			<div id="map-panel">
+				<div id="legend">
+					<div id="legend-text" style="">
+						<span id="legend-max-text"></span>
+						<span id="legend-min-text"></span>
+					</div>
+				</div>
+				<div id="canvas-panel">
+					<canvas id="canvas">UPDATE YO BROWSER. I MEAN COME ON IT'S 2018, STOP USING NETSCAPE NAVIGATOR YA DARN HIPSTER</canvas>
+				</div>
+			</div>
+			<div id="map-view-panel" class="button-panel">
+				<button type="button" onclick="setCurrentDisplayView(0)">Temperature View</button>
+				<button type="button" onclick="setCurrentDisplayView(1)">Nutrient View</button>
+				<button type="button" onclick="setCurrentDisplayView(2)">Elevation View</button>
+				<button type="button" onclick="setCurrentDisplayView(3)">Population View</button>
+			</div>
+			<div id="species-stats-panel">
+				<!--To be filled by script-->
+			</div>
+			<div id="advance-world-panel" class="button-panel">
+				<button type="button" onclick="generateWorld()">Generate New World</button>
+				<button type="button" onclick="stepWorld()">+1 Rev</button>
+				<button type="button" onclick="stepWorld(100)">+100 Rev</button>
+				<button type="button" onclick="stepWorld(1000)">+1000 Rev</button>
+				<button type="button" onclick="stepWorld(100000)">+100000 Rev</button>
+				<button type="button" onclick="constantStepWorld()">Toggle AutoRev</button>
+			</div>
+		</div>	
+	</div>
+	
+	<script>
+		
+		/////------CHANGE THESE SETTINGS TO TWEAK-------/////
+		const dimensions = {x:540, y:300} //set equal to size of canvas-panel
+		const size = {x:0,y:0,p:2}; //width, height, pixel size of level
+		const eruptionTiles = 1; //number of volcanoes that can erupt in one rev
+		const eruptionChance = 0.25; //percent chance of chosen volcanoes erupting
+		const erosionTiles = 3; //number of randomly picked tiles that will erode each rev
+		const erosionValues = [1,1,1,1,1.5,1.5,2,2]; //constant to multiply erosion avg (1 randomly selected)
+		const volcanicRates = [0,0,0,1,1,2,2,3,3,4]; //elevation change per eruption tile, each volcano on game
+		const nutrientsPerEruptionLevel = 20; //nutrients gained per tile per eruption level
+		const driftChance = 0.00133; //chance per eruption that volcano will drift in random direction (real world equates to one tile per 30,000 yrs)
+		const seaLevel = 50; //sea level in elevation
+		const minimumSunlightValue = 0.3; //percent of latitude from equator to north pole each band of temperature occupies maximum and minimum
+		const maximumSunlightValue = 0.6;
+		const sunlightRandomBlend = 0.9; //Randomized blend between sunlight bands
+		const initNutrients = 150; //nutrient each tile begins with
+		const initBackgroundRadiation = 1; //background radiation per rev for start of game
+		const spreadChance = 0.01; //percent of population that spreads
+		/////------|||||||||||||||||||||||||||||||------/////
+		
+		//do not reset
+		var canvas = document.getElementById("canvas");
+		var map = canvas.getContext("2d");
+		var error = document.getElementById("error");
+		var debugData = document.getElementById("debugData");
+		var legendText = document.getElementById("legend-text");
+		var legendMaxText = document.getElementById("legend-max-text");
+		var legendMinText = document.getElementById("legend-min-text");
+		var speciesStats = document.getElementById("species-stats-panel");
+		size.x = Math.floor(dimensions.x / size.p);
+		size.y = Math.floor(dimensions.y / size.p);
+		canvas.width = size.x * size.p;
+		canvas.height = size.y * size.p;
+		var isDisplayingDebug = false;
+		var baseLife = [
+			{hp:1,def:0,atk:0,snk:0,intel:0,spd:0,foodConversion:1,maturityAge:1,name:"Single Cell",desc:"The Most Basic Bitch"}
+		];
+		var evoPerks = [];
+		
+		//these must be reset on generation, include in generateWorld()
+		var life = [];
+		var grid = [];
+		var volcanoLocations = [];
+		var sunlight;
+		var revs = 0;
+		var isStepping = false;
+		var autoStep;
+		var currentDisplayView = 0;
+		var mx = 0;
+		var my = 0;
+		
+		//generates the level to start the game
+		function generateWorld() {
+			life = [];
+			grid = [];
+			volcanoLocations = [];
+			sunlight = Math.random() * (maximumSunlightValue - minimumSunlightValue) + minimumSunlightValue; //randomly assign value for sunlight inside values above
+			revs = 0;
+			isStepping = false;
+			clearInterval(autoStep);
+			currentDisplayView = 0;
+			drawGradient();
+			mx = 0;
+			my = 0;
+			
+			//populate level with default tiles
+			for(var x = 0; x < size.x; x++) {
+				var temp = [];
+				for(var y = 0; y < size.y; y++) {				
+					temp.push({elevation:0,temp:0,volcanicRate:0,nutrients:initNutrients,rad:initBackgroundRadiation}); //default tile
+				}
+				grid.push(temp);
+			}
+			
+			//give everything correct base temperature
+			tempWorld();
+			
+			//instance volcanoes into environment, save location in array volcanoLocations
+			for(var i = 0; i < volcanicRates.length; i++) {
+				var tempX = Math.floor(Math.random()*size.x);
+				var tempY = Math.floor(Math.random()*size.y);
+				var driftX = Math.floor(Math.random()*3)-1;
+				var driftY = Math.floor(Math.random()*3)-1;
+				grid[tempX][tempY].volcanicRate = volcanicRates[i];
+				grid[tempX][tempY].temp = grid[tempX][tempY].temp + grid[tempX][tempY].volcanicRate;
+				volcanoLocations.push([tempX,tempY,driftX,driftY]);
+			}
+			
+			//spawn player species
+			newLife();
+			
+			//remove load-error debug
+			error.style = "display:none;";
+			
+			display();
+		}
+		
+		//advance world by 1 rev
+		function advanceWorld() {
+			//volcano eruptions
+			for(var i = 0; i < eruptionTiles; i++) {
+				
+				var index = Math.floor(Math.random() * volcanoLocations.length);
+				grid[volcanoLocations[index][0]][volcanoLocations[index][1]].nutrients += Math.max(1,grid[volcanoLocations[index][0]][volcanoLocations[index][1]].volcanicRate) * nutrientsPerEruptionLevel;
+				
+				if(Math.random() <= eruptionChance) {
+					volcanicEruption(volcanoLocations[index][0],volcanoLocations[index][1]);
+					
+					//continental drift via moving source of volcanic activity.
+					if(Math.random() <= driftChance) {
+						var temp = grid[volcanoLocations[index][0]][volcanoLocations[index][1]].volcanicRate;
+						volcanoLocations[index][0] = (volcanoLocations[index][0] + volcanoLocations[index][2])%size.x;
+						volcanoLocations[index][1] = (volcanoLocations[index][1] + volcanoLocations[index][3])%size.y;
+						while(volcanoLocations[index][0] < 0) volcanoLocations[index][0] += size.x;
+						while(volcanoLocations[index][1] < 0) volcanoLocations[index][1] += size.y;
+						grid[volcanoLocations[index][0]][volcanoLocations[index][1]].volcanicRate = temp;
+					}
+				}
+			}
+			
+			//erosion
+			for(var i = 0; i < erosionTiles; i++) {
+				erodeTile(Math.floor(Math.random()*size.x),Math.floor(Math.random()*size.y));
+			}
+			
+			//simulate life interactions in random order
+			//create array of 0-x
+			var shuffleIndexes = [];
+			for(var i = 0; i < life.length; i++) {
+				shuffleIndexes.push(i);
+			}
+			//shuffle array
+			for(var i = 0; i < shuffleIndexes.length; i++) {
+				var tempIndex = Math.floor(Math.random() * shuffleIndexes.length);
+				var tempValue = shuffleIndexes[tempIndex];
+				shuffleIndexes[tempIndex] = shuffleIndexes[i];
+				shuffleIndexes[i] = tempValue;
+			}
+			//loop through shuffled array of indexes, using value as index value
+			for(var j = 0; j < shuffleIndexes.length; j++) {
+				var i = shuffleIndexes[j];
+				var length = life[i].locations.length;
+				for(var k = 0; k < life[i].locations.length; k++) {
+					//get food & starve
+					var foodSurvivors = Math.floor((grid[life[i].locations[k][0]][life[i].locations[k][1]].nutrients * life[i].foodConversion) / life[i].foodNeed)
+					
+					if(foodSurvivors <= 0) {
+						removeLocation(i,k);
+						k--;
+					}
+					else {
+						life[i].locations[k][2] = foodSurvivors;
+						//old age
+						life[i].locations[k][2] = Math.ceil((1-(1/life[i].lifespan)) * life[i].locations[k][2]);
+						
+						//breed 
+						var breedIncrease = Math.ceil((1-(life[i].maturityAge/life[i].lifespan))*life[i].locations[k][2]);
+						addPop(i,life[i].locations[k][0],life[i].locations[k][1],Math.ceil(breedIncrease*0.9));
+						var spreadX = Math.max(0,Math.min(size.x,life[i].locations[k][0] + Math.floor(Math.random()*3)-1));
+						var spreadY = Math.max(0,Math.min(size.y,life[i].locations[k][1] + Math.floor(Math.random()*3)-1));
+						var spreadPop = Math.floor(breedIncrease*spreadChance*Math.max(life[i].spd,1));
+						if(spreadPop > 0) addPop(i,spreadX,spreadY,spreadPop);
+					}
+					
+					
+				}
+			}
+		}
+		
+		//recalculate values for each life
+		function restatLife(a) {
+			life[a].hp = baseLife[life[a].base].hp;
+			life[a].def = baseLife[life[a].base].def;
+			life[a].atk = baseLife[life[a].base].atk;
+			life[a].snk = baseLife[life[a].base].snk;
+			life[a].intel = baseLife[life[a].base].intel;
+			life[a].spd = baseLife[life[a].base].spd;
+			life[a].foodConversion = baseLife[life[a].base].foodConversion;
+			life[a].maturityAge = baseLife[life[a].base].maturityAge;
+			var statSum = life[a].hp + life[a].def + life[a].atk + life[a].snk + life[a].intel + life[a].spd;
+			
+			life[a].foodNeed = statSum;
+			life[a].lifespan = life[a].maturityAge * 4;
+			
+			for(var i = 0; i < life[a].perks.length; i++) {
+				//add code for perk mods
+			}
+		}
+		
+		//gets total population of species
+		function getPop(a) {
+			var pop = 0;
+			for(var i = 0; i < life[a].locations.length; i++) {
+				pop += life[a].locations[i][2];
+			}
+			return pop;
+		}
+		
+		//returns index of given coordinates in location array of given species, -1 if not found
+		function findLocation(species,x,y) {
+			for(var i = 0; i < life[species].locations.length; i++) {
+				if(life[species].locations[i][0] == x && life[species].locations[i][1] == y) return i;
+			}
+			return -1;
+		}
+		
+		//adds given population to world tile, creates new location if not existant
+		function addPop(species,x,y,population) {
+			var index = findLocation(species,x,y);
+			if(index == -1) {
+				life[species].locations.push([x,y,population]);
+			}
+			else {
+				life[species].locations[index][2] += population;
+			}
+		}
+		
+		//removes location from given species
+		function removeLocation(species, k) {
+			life[species].locations.splice(k,1);
+		}
+		
+		function newLife(base,population,x,y,evolutionPoints,perks) {
+			if(typeof base === "undefined") base = 0;
+			if(typeof population === "undefined") population = 1;
+			if(typeof x === "undefined") x = volcanoLocations[0][0];
+			if(typeof y === "undefined") y = volcanoLocations[0][1];
+			if(typeof evolutionPoints === "undefined") evolutionPoints = 0;
+			if(typeof perks === "undefined") perks = [];
+			life.push({ep:evolutionPoints,hp:0,def:0,atk:0,snk:0,intel:0,spd:0,foodNeed:0,foodConversion:0,maturityAge:0,lifespan:0,breedingRate:0,base:base,perks:perks,locations:[[x,y,population]]});
+			restatLife(life.length-1);
+		}
+		
+		//temps every tile in world -- RESOURCE HEAVY, ONLY CALL AT GENERATION
+		function tempWorld() {
+			for(var x = 0; x < size.x; x++) {
+				for(var y = 0; y < size.y; y++) {
+					tempTile(x,y);
+				}
+			}
+		}
+		
+		//temp individual tile
+		function tempTile(x, y) {
+			grid[x][y].temp = Math.min(15,Math.max(0,Math.floor(grid[x][y].elevation/50 + (Math.random() * sunlightRandomBlend + Math.abs(y-size.y/2)/(size.y/2)/sunlight))));
+		}
+		
+		//elevate tile x,y by given amount
+		function elevateTile(x, y, distance) {
+			grid[x][y].elevation += distance;
+			tempTile(x,y);
+		}
+		
+		//erode tile x,y by going down 1/2 distance to lowest neighbor tile.
+		function erodeTile(x,y) {
+			var target = grid[getLowestElevation(x,y)[0]][getLowestElevation(x,y)[1]].elevation;
+			var pre = grid[x][y].elevation;
+			grid[x][y].elevation = Math.max(0,pre - Math.floor((pre - target)/2*erosionValues[Math.floor(Math.random()*erosionValues.length)])); //avg of the 2 elevations
+			if(pre-grid[x][y].elevation > 0) grid[x][y].nutrients = Math.floor(grid[x][y].nutrients * (target/pre)); //remove target/pre % of nutrients 
+			else if(Math.random() < eruptionChance) grid[x][y].nutrients = 0;
+			tempTile(x,y);
+		}
+		
+		//lava adds given layers to each tile touched, flowing downhill to the adjacent lowest tile. Restores nutrients
+		function volcanicEruption(x, y) {
+			var tempX = x;
+			var tempY = y;
+			while(getLowestElevation(tempX,tempY)[0]!=tempX || getLowestElevation(tempX,tempY)[1]!=tempY) {
+				elevateTile(tempX,tempY,grid[x][y].volcanicRate);
+				grid[tempX][tempY].nutrients += Math.max(grid[x][y].volcanicRate,1) * nutrientsPerEruptionLevel;
+				
+				var newTile = getLowestElevation(tempX,tempY);
+				tempX = newTile[0];
+				tempY = newTile[1];
+			}
+			
+			elevateTile(tempX,tempY,grid[x][y].volcanicRate);
+			grid[tempX][tempY].nutrients += grid[x][y].volcanicRate * nutrientsPerEruptionLevel;
+		}
+		
+		//returns coordinates of lowest elevation next to given tile (inclusive of current tile)
+		function getLowestElevation(x, y) {
+			var maxX = Math.min(size.x-1,x+1);
+			var maxY = Math.min(size.y-1,y+1);
+			var minX = Math.max(0,x-1);
+			var minY = Math.max(0,y-1);
+			
+			var e = Math.min(grid[x][y].elevation,Math.min(grid[minX][y].elevation,Math.min(grid[maxX][y].elevation,Math.min(grid[x][minY].elevation,grid[x][maxY].elevation))));
+			if (e == grid[x][y].elevation) return [x,y];
+			if (e == grid[maxX][y].elevation) return [maxX,y];
+			if (e == grid[minX][y].elevation) return [minX,y];
+			if (e == grid[x][maxY].elevation) return [x,maxY];
+			return [x,minY];
+		}
+		
+		//advance world by given # of revs (default 1 if no args)
+		function stepWorld(iterations) {
+			if(typeof iterations === "undefined") iterations = 1;
+			for(var i = 0; i < iterations; i++) {
+				revs++;
+				advanceWorld();
+			}
+			display();
+		}
+		
+		//toggles stepWorld() activation every 10ms
+		function constantStepWorld() {
+			isStepping = !isStepping;
+			if(isStepping) autoStep = setInterval(stepWorld,10,100);
+			else clearInterval(autoStep);
+		}
+		
+		//sets display mode
+		function setCurrentDisplayView(d) {
+			currentDisplayView = d;
+			drawGradient();
+			display();
+		}
+		
+		//draws gradient on side of canvas, sets min and max numbers
+		function drawGradient() {
+			switch (currentDisplayView) {
+				case 0:
+					legendText.style="background: linear-gradient(#fff, #000);";
+					legendMinText.innerHTML = "0";
+					legendMaxText.innerHTML = "15";
+				break;
+				case 1:
+					legendText.style="background: linear-gradient(#0f0, #000);";
+					legendMinText.innerHTML = "0";
+					legendMaxText.innerHTML = "10000";
+				break;
+				case 2:
+					legendText.style="background: linear-gradient(#f00, #000);";
+					legendMinText.innerHTML = "0";
+					legendMaxText.innerHTML = "400";
+				break;
+				case 3:
+					legendText.style="background: linear-gradient(#f0f, #000);";
+					legendMinText.innerHTML = "0";
+					legendMaxText.innerHTML = "" + Math.floor(Math.sqrt(getPop(0)));
+				break;
+			}
+		}
+		
+		//displays grid on canvas, updates texts -- RESOURCE HEAVY, ONLY CALL ONCE PER COMMAND CHAIN
+		function display() {
+			switch(currentDisplayView) {
+				case 0:
+					for(var x = 0; x < size.x; x++) {
+						for(var y = 0; y < size.y; y++) {
+							var col = Math.floor(Math.max(0,Math.min(15,grid[x][y].temp))).toString(16);
+							var col2 = col;
+							if(seaLevel > grid[x][y].elevation) col2 = "9";
+							map.fillStyle = `#${col}${col}${col2}`;
+							map.fillRect(x*size.p,y*size.p,size.p,size.p);
+						}
+					}
+				break;
+				case 1:
+					for(var x = 0; x < size.x; x++) {
+						for(var y = 0; y < size.y; y++) {
+							var col = Math.floor(Math.max(0,Math.min(15,16*Math.sqrt(grid[x][y].nutrients/10000)))).toString(16);
+							map.fillStyle = `#0${col}0`;
+							map.fillRect(x*size.p,y*size.p,size.p,size.p);
+						}
+					}
+				break;
+				case 2:
+					for(var x = 0; x < size.x; x++) {
+						for(var y = 0; y < size.y; y++) {
+							var col = Math.floor(Math.max(0,Math.min(15,16*Math.sqrt(grid[x][y].elevation/400)))).toString(16);
+							map.fillStyle = `#${col}0${5 * (seaLevel > grid[x][y].elevation)}`;
+							map.fillRect(x*size.p,y*size.p,size.p,size.p);
+						}
+					}
+				break;
+				case 3:
+					map.fillStyle = "#000";
+					map.fillRect(0,0,size.x*size.p,size.y*size.p);
+					for(var i = 0; i < life[0].locations.length; i++) {
+						var col = Math.min(15,Math.floor(16 * (life[0].locations[i][2]/Math.sqrt(getPop(0))))).toString(16);
+						map.fillStyle = `#${col}0${col}`;
+						map.fillRect(life[0].locations[i][0]*size.p,life[0].locations[i][1]*size.p,size.p,size.p);	
+					}
+					drawGradient();
+				break;
+			}
+			
+			//display player species stats
+			speciesStats.innerHTML = `<table style="width:100%"><tr><th>REV</th><th>ATK</th></tr>
+																<tr><td>${revs}</td><td>${life[0].atk}</td></tr>
+																<tr><th>POPULATION</th><th>SNK</th><th>MATURITY AGE</th></tr>
+																<tr><td>${getPop(0)}</td><td>${life[0].snk}</td><td>${life[0].maturityAge}</td></tr>
+																<tr><th>EVO POINTS</th><th>INTEL</th><th>LIFESPAN</th></tr>
+																<tr><td>${life[0].ep}</td><td>${life[0].intel}</td><td>${life[0].lifespan}</td></tr>
+																<tr><th>HP</th><th>SPEED</th><th>BREEDING RATE</th></tr>
+																<tr><td>${life[0].hp}</td><td>${life[0].spd}</td><td>${life[0].breedingRate}</td></tr>
+																<tr><th>DEF</th><th>FOOD NEED</th><th>FOOD CONVERSION</th></tr>
+																<tr><td>${life[0].def}</td><td>${life[0].foodNeed}</td><td>${life[0].foodConversion}</td></tr></table><br/>
+																${baseLife[life[0].base].name}<br/>
+																${baseLife[life[0].base].desc}`;
+		}
+		
+		//----------BEGIN DEBUG----------//
+		function toggleDebug() {
+			isDisplayingDebug = !isDisplayingDebug;
+			debugData.innerHTML = "";
+			if(isDisplayingDebug) document.addEventListener("mousemove",displayDebug); 
+			else document.removeEventListener("mousemove",displayDebug);
+		}
+		
+		function displayDebug(evt) {
+			mx = Math.min(size.x-1,Math.max(0,Math.floor((evt.clientX-canvas.offsetLeft)/size.p)));
+			my = Math.min(size.y-1,Math.max(0,Math.floor((evt.clientY-canvas.offsetTop)/size.p)));
+			outputDebug();
+		}
+		
+		function outputDebug() {
+			debugData.innerHTML = "<tr><th>Selected Tile: </th><th>" + mx + " " + my + "</th></tr><tr><th>Elevation: </th><th>" + grid[mx][my].elevation + 
+				"</th></tr><tr><th>Temperature: </th><th>" + grid[mx][my].temp + "</th></tr><tr><th>Volcanic Rate: </th><th>" + grid[mx][my].volcanicRate + 
+				"</th></tr><tr><th>Nutrients: </th><th>" + grid[mx][my].nutrients + "</th></tr><tr><th>Radiation: </th><th>" + grid[mx][my].rad + "</th><th></tr>";
+		}
+		//----------END DEBUG----------//
+	
+	generateWorld();
+	
+	</script>
+</body>
+</html>

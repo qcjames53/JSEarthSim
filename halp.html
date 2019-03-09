@@ -1,0 +1,72 @@
+<html>
+<head>
+<title>This is a wobsite.</title>
+<style>
+h1 {
+	font-family: Comic Sans MS;
+	font-size: 64px;
+	text-align: center;
+	vertical-align: text-middle;
+	position: relative;
+	z-index: -1;
+	
+	
+	animation-name: subtle-rotate;
+	animation-duration: 400s;
+	animation-iteration-count: infinite;
+}
+
+p {
+	font-family: Comic Sans MS;
+	
+	text-align: justify;
+	text-size: 11;
+	animation-name: text-rainbow;
+	animation-duration: 20s;
+	animation-iteration-count: infinite;
+	
+	width:50%;
+}
+
+@keyframes text-rainbow {
+	14%   {color: red; background-color: blue; transform: rotate(0deg);}
+	28%  {color: orange; background-color: white;}
+	42%  {color: yellow; background-color: black;}
+	56%  {color: green;  background-color: white;}
+	70%  {color: blue; background-color: red;}
+	84%  {color: fuchsia; background-color: white;}
+	100%  {color: purple; background-color: white; transform: rotate(-20deg);}
+}
+
+@keyframes subtle-rotate {
+	from {transform: rotate(0deg);}
+	to   {transform: rotate(360deg);}
+}
+</style>
+</head>
+<body>
+<h1>Quinnn's Super Awesome Name Randomizer For Seecret Santa Thing</h1>
+<p id="b"></p>
+<button onClick="run()">Click me</button>
+<script>
+function run() {
+	var b = document.getElementById("b");
+	var names = ["Quinnn","Zoey","joJo","Nathaniel","Evan Bee Movie","LiL Evan","Dr. G", "Mitchell (Braedon)", "Braedon (Mitchell)", "Catterpillar", "Aaron", "Jonah's Brother", "St. Nick"];
+	
+	for(var i = 0; i < names.length; i++) {
+		var randPos = Math.floor(Math.random() * names.length);
+		var temp = names[randPos];
+		names[randPos] = names[i];
+		names[i] = temp;
+	}
+	
+	var output = "";
+	for(var i = 0; i < names.length-1; i++) {
+		output += names[i] + " -> " + names[i+1] + "<br/>";
+	}
+	output += names[names.length-1] + " -> " + names[0];
+	b.innerHTML = output;
+}
+</script>
+</body>
+</html>
